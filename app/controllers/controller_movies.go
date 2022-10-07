@@ -140,3 +140,39 @@ func GetMovie(c *fiber.Ctx) error {
 		Links:       MovieLinks,
 	})
 }
+
+func SearchMovies(c *fiber.Ctx) error {
+	search := c.Params("search")
+	page := c.Params("page")
+
+	if page == "" {
+		page = "1"
+	}
+
+	defaultURL := helpers.GetEnv("DEFAULT_URL")
+	url := fmt.Sprintf("%s%s/%s/", defaultURL, search, page)
+	fmt.Println("URL: ", url)
+
+	resp, err := soup.Get(url)
+	if err != nil {
+		panic(err)
+	}
+
+	doc := soup.HTMLParse(resp)
+	movies := doc.FindAll("div", "class", "capa_lista")
+
+	var moviesList []models.ModelMovies
+
+	for _, movie := range movies {
+		movieTitle := movie.Find("a").Attrs()["title"]
+		movieLink := movie.Find("a").Attrs()["href"]
+		movieImage := movie.Find("img").Attrs()["src"]
+		moviesList = append(moviesList, models.ModelMovies{
+			Title: movieTitle,
+			Image: movieImage,
+			Slug:  getSlugFromLink(movieLink),
+		})
+	}
+
+	return c.JSON(moviesList)
+}
