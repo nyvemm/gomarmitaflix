@@ -1,6 +1,7 @@
 package main
 
 import (
+	"marmitaflix/app/helpers"
 	"marmitaflix/app/middlewares"
 	"marmitaflix/app/routes"
 	"os"
@@ -12,6 +13,7 @@ import (
 )
 
 func main() {
+	helpers.LoadEnv()
 	app := fiber.New()
 
 	app.Use(recover.New())
