@@ -16,7 +16,7 @@ func Setup(app *fiber.App) {
 	app.Get("/movies/:slug", func(c *fiber.Ctx) error {
 		return controllers.GetMovie(c)
 	})
-	app.Get("/movies", func(c *fiber.Ctx) error {
+	app.Get("/movies/all/:page", func(c *fiber.Ctx) error {
 		return controllers.GetMovies(c)
 	})
 }

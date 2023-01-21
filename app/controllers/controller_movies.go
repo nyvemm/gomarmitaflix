@@ -25,9 +25,15 @@ func HandleNotFoundError(c *fiber.Ctx) error {
 
 func GetMovies(c *fiber.Ctx) error {
 	defaultURL := helpers.GetEnv("DEFAULT_URL")
+	page := c.Params("page")
 
-	fmt.Println("URL: ", defaultURL)
-	resp, err := soup.Get(defaultURL)
+	if page == "" {
+		page = "1"
+	}
+
+	url := fmt.Sprintf("%s/%s/", defaultURL, page)
+	fmt.Println("URL: ", url)
+	resp, err := soup.Get(url)
 	if err != nil {
 		panic(err)
 	}
