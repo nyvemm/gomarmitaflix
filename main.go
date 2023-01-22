@@ -16,11 +16,11 @@ func main() {
 	helpers.LoadEnv()
 	app := fiber.New()
 
+	middlewares.CorsSetup(app)
 	app.Use(recover.New())
 	app.Use(logger.New())
-
 	middlewares.CacheSetup(app)
-	middlewares.CorsSetup(app)
+
 	routes.Setup(app)
 
 	port := os.Getenv("PORT")

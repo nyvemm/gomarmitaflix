@@ -17,6 +17,7 @@ func getSlugFromLink(link string) string {
 }
 
 func HandleNotFoundError(c *fiber.Ctx) error {
+	c.Set("Access-Control-Allow-Origin", "*")
 	return c.JSON(fiber.Map{
 		"status":  404,
 		"message": "Movie not found",
@@ -61,6 +62,7 @@ func GetMovies(c *fiber.Ctx) error {
 		})
 	}
 
+	c.Set("Access-Control-Allow-Origin", "*")
 	return c.JSON(moviesList)
 }
 
@@ -145,6 +147,7 @@ func GetMovie(c *fiber.Ctx) error {
 		}
 	}
 
+	c.Set("Access-Control-Allow-Origin", "*")
 	return c.JSON(models.ModelMovie{
 		Title:       movieTitle,
 		Image:       movieImage,
@@ -188,5 +191,6 @@ func SearchMovies(c *fiber.Ctx) error {
 		})
 	}
 
+	c.Set("Access-Control-Allow-Origin", "*")
 	return c.JSON(moviesList)
 }
