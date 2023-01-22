@@ -19,4 +19,10 @@ func Setup(app *fiber.App) {
 	app.Get("/movies/all/:page", func(c *fiber.Ctx) error {
 		return controllers.GetMovies(c)
 	})
+	app.Get("/movies/all/:page", func(c *fiber.Ctx) error {
+		return controllers.GetMovies(c)
+	})
+	app.Get("/movies/categories/:category/:page", func(c *fiber.Ctx) error {
+		return controllers.GetMovies(c)
+	})
 }
