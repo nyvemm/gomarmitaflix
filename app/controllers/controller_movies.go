@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/anaskhan96/soup"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 func getSlugFromLink(link string) string {
@@ -16,7 +16,7 @@ func getSlugFromLink(link string) string {
 	return slug
 }
 
-func HandleNotFoundError(c *fiber.Ctx) error {
+func HandleNotFoundError(c fiber.Ctx) error {
 	c.Set("Access-Control-Allow-Origin", "*")
 	return c.JSON(fiber.Map{
 		"status":  404,
@@ -24,7 +24,7 @@ func HandleNotFoundError(c *fiber.Ctx) error {
 	})
 }
 
-func GetMovies(c *fiber.Ctx) error {
+func GetMovies(c fiber.Ctx) error {
 	defaultURL := helpers.GetEnv("DEFAULT_URL")
 	page := c.Params("page")
 	category := c.Params("category")
@@ -66,7 +66,7 @@ func GetMovies(c *fiber.Ctx) error {
 	return c.JSON(moviesList)
 }
 
-func GetMovie(c *fiber.Ctx) error {
+func GetMovie(c fiber.Ctx) error {
 	slug := c.Params("slug")
 	defaultURL := helpers.GetEnv("DEFAULT_URL")
 	url := fmt.Sprintf("%s%s/", defaultURL, slug)
@@ -158,7 +158,7 @@ func GetMovie(c *fiber.Ctx) error {
 	})
 }
 
-func SearchMovies(c *fiber.Ctx) error {
+func SearchMovies(c fiber.Ctx) error {
 	search := c.Params("search")
 	page := c.Params("page")
 
