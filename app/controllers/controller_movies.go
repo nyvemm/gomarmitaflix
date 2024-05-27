@@ -167,7 +167,7 @@ func SearchMovies(c *fiber.Ctx) error {
 	}
 
 	defaultURL := helpers.GetEnv("DEFAULT_URL")
-	url := fmt.Sprintf("%s%s/%s/", defaultURL, search, page)
+	url := fmt.Sprintf("%s%s/?s=%s", defaultURL, page, search)
 	fmt.Println("URL: ", url)
 
 	resp, err := soup.Get(url)
@@ -176,7 +176,7 @@ func SearchMovies(c *fiber.Ctx) error {
 	}
 
 	doc := soup.HTMLParse(resp)
-	movies := doc.FindAll("div", "class", "capa_lista")
+	movies := doc.FindAll("div", "class", "one-post")
 
 	var moviesList []models.ModelMovies
 
