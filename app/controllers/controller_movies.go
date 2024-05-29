@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"marmitaflix/app/helpers"
 	"marmitaflix/app/models"
+	netURL "net/url"
 	"strings"
 
 	"github.com/anaskhan96/soup"
@@ -64,6 +65,40 @@ func GetMovies(c fiber.Ctx) error {
 
 	c.Set("Access-Control-Allow-Origin", "*")
 	return c.JSON(moviesList)
+}
+
+func GetMagnetMovies(c fiber.Ctx) error {
+	slug := c.Params("slug")
+	defaultURL := helpers.GetEnv("DEFAULT_URL")
+	url := fmt.Sprintf("%s%s/", defaultURL, slug)
+	fmt.Println("URL: ", url)
+
+	resp, err := soup.Get(url)
+	if err != nil {
+		panic(err)
+	}
+
+	doc := soup.HTMLParse(resp)
+	magnetLinks := searchMagnetLinks(doc)
+
+	var movies []models.ModelMovieLink
+
+	for _, magnetLink := range magnetLinks {
+		movies = append(movies, models.ModelMovieLink{
+			Label: getTitleFromMagnetLink(magnetLink),
+			Link:  fmt.Sprintf("%s/magnet/%s", c.BaseURL(), magnetLink),
+		})
+	}
+
+	c.Set("Access-Control-Allow-Origin", "*")
+	return c.Status(200).JSON(movies)
+
+}
+
+func OpenMagnet(c fiber.Ctx) error {
+	magnet := strings.Replace(c.OriginalURL(), "/magnet/", "", -1)
+	c.Set("Access-Control-Allow-Origin", "*")
+	return c.Redirect().Status(302).To(magnet)
 }
 
 func GetMovie(c fiber.Ctx) error {
@@ -167,7 +202,7 @@ func SearchMovies(c fiber.Ctx) error {
 	}
 
 	defaultURL := helpers.GetEnv("DEFAULT_URL")
-	url := fmt.Sprintf("%s%s/?s=%s", defaultURL, page, search)
+	url := fmt.Sprintf("%spage/%s/?s=%s", defaultURL, page, search)
 	fmt.Println("URL: ", url)
 
 	resp, err := soup.Get(url)
@@ -185,12 +220,46 @@ func SearchMovies(c fiber.Ctx) error {
 		movieLink := movie.Find("a").Attrs()["href"]
 		movieImage := movie.Find("img").Attrs()["src"]
 		moviesList = append(moviesList, models.ModelMovies{
-			Title: movieTitle,
-			Image: movieImage,
-			Slug:  getSlugFromLink(movieLink),
+			Title:        movieTitle,
+			Image:        movieImage,
+			Slug:         getSlugFromLink(movieLink),
+			DownloadLink: fmt.Sprintf("%s/open/%s", c.BaseURL(), getSlugFromLink(movieLink)),
 		})
 	}
 
 	c.Set("Access-Control-Allow-Origin", "*")
 	return c.JSON(moviesList)
+}
+
+func sanitizeURLText(encodedText string) (string, error) {
+	decodedText, err := netURL.QueryUnescape(encodedText)
+	if err != nil {
+		return "", err
+	}
+	return strings.Replace(decodedText, ".", " ", -1), nil
+}
+
+func searchMagnetLinks(doc soup.Root) []string {
+	var magnets []string
+	finder := doc.FindAll("a")
+	for _, link := range finder {
+		if strings.Contains(link.Attrs()["href"], "magnet") {
+			magnets = append(magnets, link.Attrs()["href"])
+		}
+	}
+	return magnets
+}
+
+func getTitleFromMagnetLink(link string) string {
+	split := strings.Split(link, "&")
+	for _, s := range split {
+		if strings.Contains(s, "dn=") {
+			title, err := sanitizeURLText(strings.Replace(s, "dn=", "", -1))
+			if err != nil {
+				return ""
+			}
+			return title
+		}
+	}
+	return ""
 }

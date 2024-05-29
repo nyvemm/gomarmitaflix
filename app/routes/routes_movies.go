@@ -16,6 +16,13 @@ func Setup(app *fiber.App) {
 	app.Get("/movies/:slug", func(c fiber.Ctx) error {
 		return controllers.GetMovie(c)
 	})
+	app.Get("/open/:slug", func(c fiber.Ctx) error {
+		return controllers.GetMagnetMovies(c)
+	})
+	app.Get("/magnet/:magnet", func(c fiber.Ctx) error {
+		return controllers.OpenMagnet(c)
+	})
+
 	app.Get("/movies/all/:page", func(c fiber.Ctx) error {
 		return controllers.GetMovies(c)
 	})
