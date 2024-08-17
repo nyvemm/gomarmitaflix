@@ -5,7 +5,9 @@ import (
 	"marmitaflix/app/helpers"
 	"marmitaflix/app/models"
 	netURL "net/url"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/anaskhan96/soup"
 	"github.com/gofiber/fiber/v3"
@@ -34,11 +36,9 @@ func GetMovies(c fiber.Ctx) error {
 		page = "1"
 	}
 
-	var url string
+	url := fmt.Sprintf("%s/%s/", defaultURL, page)
 	if category != "" {
 		url = fmt.Sprintf("%s/%s/%s/", defaultURL, category, page)
-	} else {
-		url = fmt.Sprintf("%s/%s/", defaultURL, page)
 	}
 
 	fmt.Println("URL: ", url)
@@ -48,12 +48,12 @@ func GetMovies(c fiber.Ctx) error {
 	}
 
 	doc := soup.HTMLParse(resp)
-	movies := doc.FindAll("div", "class", "capa_lista")
+	movies := doc.FindAll("div", "class", "cf")
 
 	var moviesList []models.ModelMovies
 
 	for _, movie := range movies {
-		movieTitle := movie.Find("a").Attrs()["title"]
+		movieTitle := movie.Find("a").Attrs()["entry-title"]
 		movieLink := movie.Find("a").Attrs()["href"]
 		movieImage := movie.Find("img").Attrs()["src"]
 		moviesList = append(moviesList, models.ModelMovies{
@@ -193,41 +193,139 @@ func GetMovie(c fiber.Ctx) error {
 	})
 }
 
-func SearchMovies(c fiber.Ctx) error {
+func SearchMoviesSync(c fiber.Ctx) error {
+	var moviesList []models.ModelMovies
+	var url string
+	var loop bool
+
 	search := c.Params("search")
 	page := c.Params("page")
 
-	if page == "" {
-		page = "1"
+	pageInt, atoiErr := strconv.Atoi(page)
+	if atoiErr != nil {
+		loop = true
+		pageInt = 1
 	}
 
 	defaultURL := helpers.GetEnv("DEFAULT_URL")
-	url := fmt.Sprintf("%spage/%s/?s=%s", defaultURL, page, search)
-	fmt.Println("URL: ", url)
+	c.Set("Access-Control-Allow-Origin", "*")
 
-	resp, err := soup.Get(url)
-	if err != nil {
-		panic(err)
+	for {
+		url = fmt.Sprintf("%spage/%d/?s=%s", defaultURL, pageInt, search)
+		fmt.Println("URL: ", url)
+
+		resp, err := soup.Get(url)
+		if err != nil {
+			panic(err)
+		}
+
+		doc := soup.HTMLParse(resp)
+		movies := doc.FindAll("article", "class", "post")
+
+		if len(movies) == 0 {
+			return c.JSON(moviesList)
+		}
+
+		for _, movie := range movies {
+			movieTitle := movie.Find("header").Find("h2").Find("a").Text()
+			movieLink := movie.Find("a").Attrs()["href"]
+			movieImage := movie.Find("img").Attrs()["src"]
+			moviesList = append(moviesList, models.ModelMovies{
+				Title:        movieTitle,
+				Image:        movieImage,
+				Slug:         getSlugFromLink(movieLink),
+				DownloadLink: fmt.Sprintf("%s/open/%s", c.BaseURL(), getSlugFromLink(movieLink)),
+			})
+		}
+		if !loop {
+			return c.JSON(moviesList)
+		}
+		pageInt++
 	}
+}
 
-	doc := soup.HTMLParse(resp)
-	movies := doc.FindAll("div", "class", "one-post")
-
+// TODO (il): implement async paging scrapper
+func SearchMovies(c fiber.Ctx) error {
 	var moviesList []models.ModelMovies
 
-	for _, movie := range movies {
-		movieTitle := movie.Find("a").Attrs()["title"]
-		movieLink := movie.Find("a").Attrs()["href"]
-		movieImage := movie.Find("img").Attrs()["src"]
-		moviesList = append(moviesList, models.ModelMovies{
-			Title:        movieTitle,
-			Image:        movieImage,
-			Slug:         getSlugFromLink(movieLink),
-			DownloadLink: fmt.Sprintf("%s/open/%s", c.BaseURL(), getSlugFromLink(movieLink)),
-		})
+	search := c.Params("search")
+	page := c.Params("page")
+
+	pageInt, atoiErr := strconv.Atoi(page)
+	if atoiErr != nil {
+		pageInt = 1
 	}
 
+	defaultURL := helpers.GetEnv("DEFAULT_URL")
 	c.Set("Access-Control-Allow-Origin", "*")
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	errorChan := make(chan error, 1)
+	stopChan := make(chan struct{})
+
+	var once sync.Once
+
+	pagesToFetch := 10
+	for i := pageInt; i < pageInt+pagesToFetch; i++ {
+		wg.Add(1)
+		go func(p int) {
+			defer wg.Done()
+
+			select {
+			case <-stopChan:
+				return
+			default:
+			}
+
+			url := fmt.Sprintf("%spage/%d/?s=%s", defaultURL, p, search)
+			fmt.Println("URL: ", url)
+
+			resp, err := soup.Get(url)
+			if err != nil {
+				errorChan <- err
+				return
+			}
+
+			doc := soup.HTMLParse(resp)
+			movies := doc.FindAll("article", "class", "post")
+
+			if len(movies) == 0 {
+				once.Do(func() {
+					close(stopChan)
+				})
+				return
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			for _, movie := range movies {
+				movieTitle := movie.Find("header").Find("h2").Find("a").Text()
+				movieLink := movie.Find("a").Attrs()["href"]
+				movieImage := movie.Find("img").Attrs()["src"]
+				moviesList = append(moviesList, models.ModelMovies{
+					Title:        movieTitle,
+					Image:        movieImage,
+					Slug:         getSlugFromLink(movieLink),
+					DownloadLink: fmt.Sprintf("%s/open/%s", c.BaseURL(), getSlugFromLink(movieLink)),
+				})
+			}
+		}(i)
+	}
+
+	go func() {
+		wg.Wait()
+		close(errorChan)
+	}()
+
+	for err := range errorChan {
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+		}
+	}
+
 	return c.JSON(moviesList)
 }
 
