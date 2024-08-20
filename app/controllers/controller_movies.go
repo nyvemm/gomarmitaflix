@@ -36,9 +36,9 @@ func GetMovies(c fiber.Ctx) error {
 		page = "1"
 	}
 
-	url := fmt.Sprintf("%s/%s/", defaultURL, page)
+	url := fmt.Sprintf("%spage/%s", defaultURL, page)
 	if category != "" {
-		url = fmt.Sprintf("%s/%s/%s/", defaultURL, category, page)
+		url = fmt.Sprintf("%s/category/%s/page/%s/", defaultURL, category, page)
 	}
 
 	fmt.Println("URL: ", url)
@@ -48,18 +48,19 @@ func GetMovies(c fiber.Ctx) error {
 	}
 
 	doc := soup.HTMLParse(resp)
-	movies := doc.FindAll("div", "class", "cf")
+	movies := doc.FindAll("article", "class", "post")
 
 	var moviesList []models.ModelMovies
 
 	for _, movie := range movies {
-		movieTitle := movie.Find("a").Attrs()["entry-title"]
+		movieTitle := movie.Find("header").Find("h2").Find("a").Text()
 		movieLink := movie.Find("a").Attrs()["href"]
 		movieImage := movie.Find("img").Attrs()["src"]
 		moviesList = append(moviesList, models.ModelMovies{
-			Title: movieTitle,
-			Image: movieImage,
-			Slug:  getSlugFromLink(movieLink),
+			Title:        movieTitle,
+			Image:        movieImage,
+			Slug:         getSlugFromLink(movieLink),
+			DownloadLink: fmt.Sprintf("%s/open/%s", c.BaseURL(), getSlugFromLink(movieLink)),
 		})
 	}
 

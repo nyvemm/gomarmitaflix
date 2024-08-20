@@ -7,6 +7,16 @@ This microservice will search for an easy marmita then you will not starve.
 
 ## Routes
 
+### GET: `/movies/categories/drama/1`
+
+Search for drama movies.
+
+
+### GET: `/movies/all/1`
+
+Search for movies in all categories.
+
+
 ### GET: `/movies/search/marmita`
 
 Search for movies with the word "marmita" in the title.
