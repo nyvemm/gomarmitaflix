@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/log"
 
 	"github.com/gofiber/fiber/v3/middleware/logger"
 	"github.com/gofiber/fiber/v3/middleware/recover"
@@ -28,5 +29,5 @@ func main() {
 		port = "3000"
 	}
 
-	app.Listen(":" + port)
+	log.Fatal(app.Listen(":" + port))
 }

@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"crypto/md5"
 	"fmt"
 	"marmitaflix/app/helpers"
 	"marmitaflix/app/models"
@@ -8,14 +9,21 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/anaskhan96/soup"
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/log"
+
+	"github.com/go-rod/rod"
+	"github.com/go-rod/stealth"
 )
 
-func getSlugFromLink(link string) string {
-	defaultUrl := helpers.GetEnv("DEFAULT_URL")
-	slug := strings.Replace(link, defaultUrl, "", -1)
+func getSlugFromLink(link, defaultURL string) string {
+	if defaultURL == "" {
+		defaultURL = helpers.GetEnv("DEFAULT_URL")
+	}
+	slug := strings.Replace(link, defaultURL, "", -1)
 	return slug
 }
 
@@ -41,7 +49,7 @@ func GetMovies(c fiber.Ctx) error {
 		url = fmt.Sprintf("%s/category/%s/page/%s/", defaultURL, category, page)
 	}
 
-	fmt.Println("URL: ", url)
+	log.Info("URL: ", url)
 	resp, err := soup.Get(url)
 	if err != nil {
 		panic(err)
@@ -59,8 +67,8 @@ func GetMovies(c fiber.Ctx) error {
 		moviesList = append(moviesList, models.ModelMovies{
 			Title:        movieTitle,
 			Image:        movieImage,
-			Slug:         getSlugFromLink(movieLink),
-			DownloadLink: fmt.Sprintf("%s/open/%s", c.BaseURL(), getSlugFromLink(movieLink)),
+			Slug:         getSlugFromLink(movieLink, ``),
+			DownloadLink: fmt.Sprintf("%s/open/%s", c.BaseURL(), getSlugFromLink(movieLink, ``)),
 		})
 	}
 
@@ -69,17 +77,38 @@ func GetMovies(c fiber.Ctx) error {
 }
 
 func GetMagnetMovies(c fiber.Ctx) error {
+	var htmlContent string
+	var err error
 	slug := c.Params("slug")
 	defaultURL := helpers.GetEnv("DEFAULT_URL")
 	url := fmt.Sprintf("%s%s/", defaultURL, slug)
-	fmt.Println("URL: ", url)
+	log.Info("URL: ", url)
 
-	resp, err := soup.Get(url)
-	if err != nil {
-		panic(err)
+	if !strings.Contains(url, "comando.la") {
+		browser := rod.New().Timeout(time.Minute).MustConnect()
+		defer browser.MustClose()
+
+		log.Infof("js: %x\n\n", md5.Sum([]byte(stealth.JS)))
+
+		mPage := stealth.MustPage(browser)
+
+		mPage.MustNavigate(url)
+
+		// TODO (il): improve how to get the element
+		element := mPage.MustElement(`#main > div > div.post-block`)
+
+		htmlContent, err = element.HTML()
+		if err != nil {
+			log.Error(err)
+		}
+	} else {
+		htmlContent, err = soup.Get(url)
+		if err != nil {
+			panic(err)
+		}
 	}
 
-	doc := soup.HTMLParse(resp)
+	doc := soup.HTMLParse(htmlContent)
 	magnetLinks := searchMagnetLinks(doc)
 
 	var movies []models.ModelMovieLink
@@ -106,7 +135,7 @@ func GetMovie(c fiber.Ctx) error {
 	slug := c.Params("slug")
 	defaultURL := helpers.GetEnv("DEFAULT_URL")
 	url := fmt.Sprintf("%s%s/", defaultURL, slug)
-	fmt.Println("URL: ", url)
+	log.Info("URL: ", url)
 
 	resp, err := soup.Get(url)
 	if err != nil {
@@ -117,32 +146,32 @@ func GetMovie(c fiber.Ctx) error {
 
 	elementMovieImage := doc.Find("img", "class", "img-fluid")
 	if elementMovieImage.Error != nil {
-		fmt.Println("Error: ", elementMovieImage.Error)
+		log.Info("Error: ", elementMovieImage.Error)
 		return HandleNotFoundError(c)
 	}
 	movieImage := elementMovieImage.Attrs()["src"]
 
 	infoDiv := doc.Find("div", "id", "informacoes")
 	if infoDiv.Error != nil {
-		fmt.Println("Error: ", infoDiv.Error)
+		log.Info("Error: ", infoDiv.Error)
 		return HandleNotFoundError(c)
 	}
 	infoDivFirstStrong := infoDiv.Find("strong")
 	if infoDivFirstStrong.Error != nil {
-		fmt.Println("Error: ", infoDivFirstStrong.Error)
+		log.Info("Error: ", infoDivFirstStrong.Error)
 		return HandleNotFoundError(c)
 	}
 	movieTitle := infoDivFirstStrong.Text()
 
 	sinopseDiv := doc.Find("div", "id", "sinopse")
 	if sinopseDiv.Error != nil {
-		fmt.Println("Error: ", sinopseDiv.Error)
+		log.Info("Error: ", sinopseDiv.Error)
 		return HandleNotFoundError(c)
 	}
 
 	sinopseDivFirstP := sinopseDiv.Find("p")
 	if sinopseDivFirstP.Error != nil {
-		fmt.Println("Error: ", sinopseDivFirstP.Error)
+		log.Info("Error: ", sinopseDivFirstP.Error)
 		return HandleNotFoundError(c)
 	}
 	movieSinopse := sinopseDivFirstP.Text()
@@ -161,7 +190,7 @@ func GetMovie(c fiber.Ctx) error {
 
 	downloadP := doc.Find("p", "id", "lista_download")
 	if downloadP.Error != nil {
-		fmt.Println("Error: ", downloadP.Error)
+		log.Info("Error: ", downloadP.Error)
 		return HandleNotFoundError(c)
 	}
 
@@ -194,7 +223,8 @@ func GetMovie(c fiber.Ctx) error {
 	})
 }
 
-func SearchMoviesSync(c fiber.Ctx) error {
+// SearchMoviesLemon tested in limontorrents
+func SearchMoviesLemon(c fiber.Ctx) error {
 	var moviesList []models.ModelMovies
 	var url string
 	var loop bool
@@ -208,39 +238,57 @@ func SearchMoviesSync(c fiber.Ctx) error {
 		pageInt = 1
 	}
 
-	defaultURL := helpers.GetEnv("DEFAULT_URL")
+	defaultURL := helpers.GetEnv("LEMON_URL")
 	c.Set("Access-Control-Allow-Origin", "*")
 
 	for {
 		url = fmt.Sprintf("%spage/%d/?s=%s", defaultURL, pageInt, search)
-		fmt.Println("URL: ", url)
+		log.Info("URL: ", url)
 
-		resp, err := soup.Get(url)
+		browser := rod.New().Timeout(time.Minute).MustConnect()
+
+		log.Infof("js: %x\n\n", md5.Sum([]byte(stealth.JS)))
+
+		mPage := stealth.MustPage(browser)
+
+		mPage.MustNavigate(url)
+
+		element := mPage.MustElement(`#main > div > div.movies-list`)
+
+		htmlContent, err := element.HTML()
 		if err != nil {
-			panic(err)
+			log.Error(err)
 		}
 
-		doc := soup.HTMLParse(resp)
-		movies := doc.FindAll("article", "class", "post")
+		doc := soup.HTMLParse(htmlContent)
+		movies := doc.FindAll("div", "class", "item")
 
 		if len(movies) == 0 {
+			browser.MustClose()
 			return c.JSON(moviesList)
 		}
 
 		for _, movie := range movies {
-			movieTitle := movie.Find("header").Find("h2").Find("a").Text()
+			movieTitle := movie.Find("div", "class", "title").Find("a").Text()
 			movieLink := movie.Find("a").Attrs()["href"]
 			movieImage := movie.Find("img").Attrs()["src"]
 			moviesList = append(moviesList, models.ModelMovies{
 				Title:        movieTitle,
 				Image:        movieImage,
-				Slug:         getSlugFromLink(movieLink),
-				DownloadLink: fmt.Sprintf("%s/open/%s", c.BaseURL(), getSlugFromLink(movieLink)),
+				Slug:         getSlugFromLink(movieLink, helpers.GetEnv("LEMON_URL")),
+				DownloadLink: fmt.Sprintf("%s/open/%s", c.BaseURL(), getSlugFromLink(movieLink, helpers.GetEnv("LEMON_URL"))),
 			})
 		}
 		if !loop {
 			return c.JSON(moviesList)
 		}
+		browser.MustClose()
+
+		if len(movies) < 21 {
+			browser.MustClose()
+			return c.JSON(moviesList)
+		}
+
 		pageInt++
 	}
 }
@@ -281,7 +329,7 @@ func SearchMovies(c fiber.Ctx) error {
 			}
 
 			url := fmt.Sprintf("%spage/%d/?s=%s", defaultURL, p, search)
-			fmt.Println("URL: ", url)
+			log.Info("URL: ", url)
 
 			resp, err := soup.Get(url)
 			if err != nil {
@@ -309,8 +357,8 @@ func SearchMovies(c fiber.Ctx) error {
 				moviesList = append(moviesList, models.ModelMovies{
 					Title:        movieTitle,
 					Image:        movieImage,
-					Slug:         getSlugFromLink(movieLink),
-					DownloadLink: fmt.Sprintf("%s/open/%s", c.BaseURL(), getSlugFromLink(movieLink)),
+					Slug:         getSlugFromLink(movieLink, ``),
+					DownloadLink: fmt.Sprintf("%s/open/%s", c.BaseURL(), getSlugFromLink(movieLink, ``)),
 				})
 			}
 		}(i)
