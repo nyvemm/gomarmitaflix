@@ -10,7 +10,7 @@ func Setup(app *fiber.App) {
 	app.Get("/movies/search/:search", func(c fiber.Ctx) error {
 		return controllers.SearchMovies(c)
 	})
-	app.Get("/lemon/search/:search", func(c fiber.Ctx) error {
+	app.Get("/lemon/search/:search/:page", func(c fiber.Ctx) error {
 		return controllers.SearchMoviesLemon(c)
 	})
 	app.Get("/movies/search/:search/:page", func(c fiber.Ctx) error {

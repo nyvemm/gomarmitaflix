@@ -14,6 +14,7 @@ import (
 	"github.com/anaskhan96/soup"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/log"
+	"github.com/valyala/fasthttp"
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/stealth"
@@ -226,38 +227,65 @@ func GetMovie(c fiber.Ctx) error {
 // SearchMoviesLemon tested in limontorrents
 func SearchMoviesLemon(c fiber.Ctx) error {
 	var moviesList []models.ModelMovies
-	var url string
-	var loop bool
 
 	search := c.Params("search")
-	page := c.Params("page")
 
-	pageInt, atoiErr := strconv.Atoi(page)
+	pageInt, atoiErr := strconv.Atoi(c.Params("page"))
 	if atoiErr != nil {
-		loop = true
 		pageInt = 1
+	}
+
+	searchLimit, atoiErr := strconv.Atoi(c.Query("limit"))
+	if atoiErr != nil {
+		searchLimit = 1
 	}
 
 	defaultURL := helpers.GetEnv("LEMON_URL")
 	c.Set("Access-Control-Allow-Origin", "*")
 
+	currentPage := pageInt
+
+	if searchLimit > 1 {
+		currentPage = 1
+	}
+
+	// TODO (il): investigate why the page is getting stuck at some point
 	for {
-		url = fmt.Sprintf("%spage/%d/?s=%s", defaultURL, pageInt, search)
+		url := fmt.Sprintf("%spage/%d/?s=%s", defaultURL, currentPage, search)
 		log.Info("URL: ", url)
 
-		browser := rod.New().Timeout(time.Minute).MustConnect()
-
-		log.Infof("js: %x\n\n", md5.Sum([]byte(stealth.JS)))
-
+		browser := rod.New().Timeout(5 * time.Minute).MustConnect()
+		if browser.Connect() != nil {
+			browser.MustClose()
+			if moviesList == nil {
+				return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+					"status": 500,
+				})
+			}
+			return c.Status(fiber.StatusOK).JSON(moviesList)
+		}
 		mPage := stealth.MustPage(browser)
+
+		status, _, err := fasthttp.Get(nil, url)
+		if err != nil || status != fiber.StatusOK {
+			log.Info("status: ", status)
+			browser.MustClose()
+			if moviesList == nil {
+				return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+					"status": 404,
+				})
+			}
+			return c.Status(fiber.StatusOK).JSON(moviesList)
+		}
 
 		mPage.MustNavigate(url)
 
+		// TODO (il): threat error when element not found
 		element := mPage.MustElement(`#main > div > div.movies-list`)
-
 		htmlContent, err := element.HTML()
 		if err != nil {
-			log.Error(err)
+			log.Error("html error: ", err)
+			browser.MustClose()
 		}
 
 		doc := soup.HTMLParse(htmlContent)
@@ -265,13 +293,20 @@ func SearchMoviesLemon(c fiber.Ctx) error {
 
 		if len(movies) == 0 {
 			browser.MustClose()
-			return c.JSON(moviesList)
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"status": 404,
+			})
 		}
 
 		for _, movie := range movies {
 			movieTitle := movie.Find("div", "class", "title").Find("a").Text()
 			movieLink := movie.Find("a").Attrs()["href"]
 			movieImage := movie.Find("img").Attrs()["src"]
+
+			if movieImage == "" || movieTitle == "" || movieLink == "" {
+				continue
+			}
+
 			moviesList = append(moviesList, models.ModelMovies{
 				Title:        movieTitle,
 				Image:        movieImage,
@@ -279,17 +314,13 @@ func SearchMoviesLemon(c fiber.Ctx) error {
 				DownloadLink: fmt.Sprintf("%s/open/%s", c.BaseURL(), getSlugFromLink(movieLink, helpers.GetEnv("LEMON_URL"))),
 			})
 		}
-		if !loop {
-			return c.JSON(moviesList)
-		}
 		browser.MustClose()
 
-		if len(movies) < 21 {
+		if len(movies) < 21 || currentPage == searchLimit {
 			browser.MustClose()
-			return c.JSON(moviesList)
+			return c.Status(fiber.StatusOK).JSON(moviesList)
 		}
-
-		pageInt++
+		currentPage++
 	}
 }
 
